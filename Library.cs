@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -16,9 +19,9 @@ using MongoDB.Bson.Serialization.Attributes;
 namespace SystemInfo
 {
     /// <summary>
-    /// 測試用
+    /// 
     /// </summary>
-    public class SystemInfo2 : INotifyPropertyChanged, IDisposable
+    public class Env : INotifyPropertyChanged, IDisposable
     {
         #region Private
         // 刷新 UI 用 Timer
@@ -678,5 +681,80 @@ namespace SystemInfo
             _disposed = true;
         }
         #endregion
+    }
+
+    /// <summary>
+    /// 網卡資訊
+    /// </summary>
+    public class NetworkInfo : INotifyPropertyChanged
+    {
+        #region Private
+        private OperationalStatus _status;
+        #endregion
+
+        #region Properties
+        public string Name { get; set; }
+
+        public string IP { get; set; }
+
+        public string MAC { get; set; }
+
+        public string SubMask { get; set; }
+
+        public string DefaultGetway { get; set; }
+
+        public bool Status => _status == OperationalStatus.Up;
+        #endregion
+
+        #region 建構子
+        public NetworkInfo(OperationalStatus status)
+        {
+            _status = status;
+        }
+
+        public NetworkInfo(string name, OperationalStatus status)
+        {
+            Name = name;
+            _status = status;
+        }
+        #endregion
+
+        #region Property Changed Event
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+        #endregion
+    }
+
+    /// <summary>
+    /// 網卡資訊集合
+    /// </summary>
+    public class NetWorkInfoCollection : ObservableCollection<NetworkInfo>
+    {
+        public NetWorkInfoCollection() : base()
+        {
+            NetworkInterface[] interfaces = NetworkInterface.GetAllNetworkInterfaces().OrderBy(x => x.Name).ToArray();
+
+            foreach (NetworkInterface @interface in interfaces)
+            {
+                if (@interface.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                {
+                    UnicastIPAddressInformation unicastIP = @interface.GetIPProperties().UnicastAddresses.FirstOrDefault(x => x.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                    GatewayIPAddressInformation gatewayIP = @interface.GetIPProperties().GatewayAddresses.FirstOrDefault();
+
+                    Add(new NetworkInfo(@interface.Name, @interface.OperationalStatus)
+                    {
+                        IP = $"{unicastIP.Address}",
+                        //MAC = $"{string.Join("-", Array.ConvertAll(@interface.GetPhysicalAddress().GetAddressBytes(), x => $"{x:X2}"))}",
+                        MAC = $"{@interface.GetPhysicalAddress()}",
+                        SubMask = $"{unicastIP.IPv4Mask}",
+                        DefaultGetway = $"{gatewayIP?.Address}"
+                    });
+                }
+            }
+        }
     }
 }

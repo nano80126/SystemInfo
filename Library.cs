@@ -310,9 +310,20 @@ namespace SystemInfo
         }
 
         /// <summary>
+        /// 終止 Socket Server
+        /// </summary>
+        public void EndSocketServer()
+        {
+            if (_cancellationTokenSource?.IsCancellationRequested == false)
+            {
+                _cancellationTokenSource.Cancel();
+            }
+        }
+
+        /// <summary>
         /// 設定 Tcp Listener
         /// </summary>
-        [Obsolete]
+        [Obsolete("deprecated, will be removed at next version")]
         public void SetTcpListener()
         {
             _cancellationTokenSource = new CancellationTokenSource();
@@ -424,6 +435,7 @@ namespace SystemInfo
         /// <summary>
         /// 終止Tcp Listener
         /// </summary>
+        [Obsolete("deprecated, will be removed at next version")]
         public void EndTcpListener()
         {
             //_cancellationTokenSource 不為 null 且尚未要求 cancel
@@ -468,6 +480,15 @@ namespace SystemInfo
         }
 
         /// <summary>
+        /// 設定 Total Parts (主要用於初始化載入)
+        /// </summary>
+        public void SetTotalParts(int parts)
+        {
+            _totalParts = parts;
+            OnPropertyChanged(nameof(TotalParts));
+        }
+
+        /// <summary>
         /// 量測工件計數 +1
         /// </summary>
         public void PlusTotalParts()
@@ -497,7 +518,7 @@ namespace SystemInfo
         /// </summary>
         public void StopIdleWatch()
         {
-            if (_stopwatch?.IsRunning is true)
+            if (_stopwatch?.IsRunning == true)
             {
                 _stopwatch.Stop();
             }
@@ -675,11 +696,14 @@ namespace SystemInfo
 
             if (disposing)
             {
-                _timer.Stop();
-                _timer.Dispose();
+                _timer?.Stop();
+                _timer?.Dispose();
+
+                _idleTimer?.Stop();
+                _idleTimer?.Dispose();
             }
             _disposed = true;
-        }
+        } 
         #endregion
     }
 

@@ -107,6 +107,13 @@ namespace SystemInfo
         public string SystemTime => $"{DateTime.Now:HH:mm:ss}";
 
         /// <summary>
+        /// 系統日期
+        /// </summary>
+        [BsonIgnore]
+        [JsonIgnore]
+        public string SystemDate => $"{DateTime.Now:MM/dd/yy}";
+
+        /// <summary>
         /// 軟體版本
         /// </summary>
         [BsonElement(nameof(SoftVer))]

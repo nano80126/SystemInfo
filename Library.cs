@@ -19,9 +19,96 @@ using MongoDB.Bson.Serialization.Attributes;
 namespace SystemInfo
 {
     /// <summary>
+    /// 系統基本資訊
+    /// </summary>
+    public interface IBasicInfo
+    {
+        /// <summary>
+        /// 作業系統版本
+        /// </summary>
+        public string OS { get; }
+
+        /// <summary>
+        /// 64 / 32 位元
+        /// </summary>
+        public string Plateform { get; }
+
+        /// <summary>
+        /// Process ID
+        /// </summary>
+        public int PID { get; }
+
+        /// <summary>
+        /// 系統時間
+        /// </summary>
+        public string SystemTime { get; }
+
+        /// <summary>
+        /// 系統日期
+        /// </summary>
+        public string SystemDate { get; }
+    }
+
+    /// <summary>
+    /// 使用的 SDK Version
+    /// </summary>
+    public interface ISDKVersion
+    {
+        #region Properties
+        public string DotNetVer { get; }
+
+        public string MongoVer { get; } 
+        #endregion
+
+        public void SetMongoVersion(string version);
+    }
+
+    public interface IOperationInfo
+    {
+        #region Properties
+        public string Mode { get; }
+
+        public string AutoTime { get; }
+
+        public string TotalAutoTime { get; }
+
+        public int TotalHours { get; }
+
+        public int TotalParts { get; }
+
+        /// <summary>
+        /// 閒置時間
+        /// </summary>
+        public int IdleTime { get; }
+
+        /// <summary>
+        /// 是否為 Idle
+        /// </summary>
+        public bool Idle { get; }
+        #endregion
+
+        #region Methods
+        public void SetStartTime();
+
+        public void SetTotalAutoTime(int seconds);
+
+        public void SetTotalParts(int parts);
+
+        public void PlusTotalParts();
+
+        public void StartIdleWatch();
+
+        public void StopIdleWatch();
+
+        public int GetAutoTimeInSeconds();
+        #endregion
+    }
+
+
+    /// <summary>
     /// 
     /// </summary>
-    public class Env : INotifyPropertyChanged, IDisposable
+    public class Env : IBasicInfo, ISDKVersion , IOperationInfo, INotifyPropertyChanged, IDisposable
     {
         #region Private
         // 刷新 UI 用 Timer
@@ -31,9 +118,6 @@ namespace SystemInfo
         // Disposed 旗標
         private bool _disposed;
 
-        //private TcpClient _tcpClient;
-        [Obsolete]
-        private TcpListener _tcpListener;
         // Socker for tcp server
         private Socket _socket;
         // Socket list of tcp clients connected
@@ -64,41 +148,27 @@ namespace SystemInfo
         #endregion
 
         #region Properties
-        //[BsonId]
-        //public ObjectId ObjID { get; set; } 
 
+        #region BasicInfo
         /// <summary>
         /// 作業系統
         /// </summary>
         [BsonElement(nameof(OS))]
         public string OS => $"{Environment.OSVersion.Version}";
+
         /// <summary>
         /// 64 / 32 位元
         /// </summary>
         [BsonElement(nameof(Plateform))]
         public string Plateform => Environment.Is64BitProcess ? "64 位元" : "32 位元";
+
         /// <summary>
         /// Program ID
         /// </summary>
         [BsonIgnore]
         [JsonIgnore]
         public int PID => Environment.ProcessId;
-        /// <summary>
-        /// .NET 版本
-        /// </summary>
-        [BsonElement(nameof(DotNetVer))]
-        public string DotNetVer => $"{Environment.Version}";
-        /// <summary>
-        /// MongoDB 版本
-        /// </summary>
-        [BsonElement(nameof(MongoVer))]
-        public string MongoVer => _mongoVer ?? "未連線";
 
-        /// <summary>
-        /// Basler Pylon API Versnio Number
-        /// </summary>
-        [BsonElement(nameof(PylonVer))]
-        public string PylonVer => FileVersionInfo.GetVersionInfo("Basler.Pylon.dll").FileVersion;
         /// <summary>
         /// 系統時間
         /// </summary>
@@ -112,13 +182,35 @@ namespace SystemInfo
         [BsonIgnore]
         [JsonIgnore]
         public string SystemDate => $"{DateTime.Now:MM/dd/yy}";
+        #endregion
+
+        #region SDK Version
+        /// <summary>
+        /// .NET 版本
+        /// </summary>
+        [BsonElement(nameof(DotNetVer))]
+        public string DotNetVer => $"{Environment.Version}";
+
+        /// <summary>
+        /// MongoDB 版本
+        /// </summary>
+        [BsonElement(nameof(MongoVer))]
+        public string MongoVer => _mongoVer ?? "未連線";
+
+        /// <summary>
+        /// Basler Pylon API Versnio Number
+        /// </summary>
+        [BsonElement(nameof(PylonVer))]
+        public string PylonVer => FileVersionInfo.GetVersionInfo("Basler.Pylon.dll").FileVersion;
 
         /// <summary>
         /// 軟體版本
         /// </summary>
         [BsonElement(nameof(SoftVer))]
         public string SoftVer { get; set; } = "2.1.0";
+        #endregion
 
+        #region OperationInfo
         /// <summary>
         /// 建立日期
         /// </summary>
@@ -243,8 +335,61 @@ namespace SystemInfo
         }
         #endregion
 
-        #region Methods
+        public static ObservableCollection<NetworkInfo> NetworkInfos { get; } = new ObservableCollection<NetworkInfo>();
 
+        #endregion
+
+        #region 單例模式建構子
+        private static readonly Env instance = new Env();
+
+        /// <summary>
+        /// 改為 private 避免被另外 new 一個實體出來
+        /// </summary>
+        private Env()
+        {
+            NetworkInterface[] interfaces = NetworkInterface.GetAllNetworkInterfaces().OrderBy(x => x.Name).ToArray();
+
+            foreach (NetworkInterface @interface in interfaces)
+            {
+                if (@interface.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                {
+                    UnicastIPAddressInformation unicastIP = @interface.GetIPProperties().UnicastAddresses.FirstOrDefault(x => x.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                    GatewayIPAddressInformation gatewayIP = @interface.GetIPProperties().GatewayAddresses.FirstOrDefault();
+
+                    if (NetworkInfos.Count == 0)
+                    {
+                        NetworkInfos.Add(new NetworkInfo(@interface.Name, @interface.OperationalStatus)
+                        {
+                            IP = $"{unicastIP.Address}",
+                            //MAC = $"{string.Join("-", Array.ConvertAll(@interface.GetPhysicalAddress().GetAddressBytes(), x => $"{x:X2}"))}",
+                            MAC = $"{@interface.GetPhysicalAddress()}",
+                            SubMask = $"{unicastIP.IPv4Mask}",
+                            DefaultGetway = $"{gatewayIP?.Address}"
+                        });
+                    }
+                    else
+                    {
+                        NetworkInfo networkInfo = NetworkInfos[0].Clone();
+
+                        networkInfo.Name = @interface.Name;
+                        networkInfo.SetOperationStatus(@interface.OperationalStatus);
+                        networkInfo.IP = $"{unicastIP.Address}";
+                        networkInfo.MAC = $"{@interface.GetPhysicalAddress()}";
+                        networkInfo.SubMask = $"{unicastIP.IPv4Mask}";
+                        networkInfo.DefaultGetway = $"{gatewayIP?.Address}";
+                        NetworkInfos.Add(networkInfo);
+                    }
+                }
+            }
+        }
+
+        public static Env GetInstance()
+        {
+            return instance;
+        } 
+        #endregion
+
+        #region Methods
         /// <summary>
         /// 設定 Socket Server
         /// </summary>
@@ -321,131 +466,6 @@ namespace SystemInfo
         /// </summary>
         public void EndSocketServer()
         {
-            if (_cancellationTokenSource?.IsCancellationRequested == false)
-            {
-                _cancellationTokenSource.Cancel();
-            }
-        }
-
-        /// <summary>
-        /// 設定 Tcp Listener
-        /// </summary>
-        [Obsolete("deprecated, will be removed at next version")]
-        public void SetTcpListener()
-        {
-            _cancellationTokenSource = new CancellationTokenSource();
-            Task.Factory.StartNew(() =>
-            {
-                _tcpListener = new TcpListener(System.Net.IPAddress.Parse("0.0.0.0"), 8016);
-                _tcpListener.Start();
-                byte[] bytes = new byte[256];
-
-                while (!_cancellationTokenSource.IsCancellationRequested)
-                {
-                    Debug.WriteLine($"Wait for a new connection...");
-
-                        // 等待有 client 連線 || 工作被取消
-                        SpinWait.SpinUntil(() => _tcpListener.Pending() || _cancellationTokenSource.IsCancellationRequested);
-                        // 若工作被 Cancel，跳出迴圈
-                        if (_cancellationTokenSource.IsCancellationRequested) { break; }
-
-                        // 接受 client 連線
-                        TcpClient tcpClient = _tcpListener.AcceptTcpClient();
-
-                    Task.Run(() =>
-                    {
-                        Debug.WriteLine("Connected!");
-
-                        Debug.WriteLine($"{tcpClient.Client.RemoteEndPoint} {tcpClient.Client.LocalEndPoint} {tcpClient.Client.Handle} {Task.CurrentId}");
-
-                            // 取得 NetworkStream
-                            NetworkStream networkStream = tcpClient.GetStream();
-
-                            // (i = networkStream.Read(bytes, 0, bytes.Length)).;
-                            try
-                        {
-                                #region 這部分要重寫
-#if false
-                        //while (_tcpClient.Connected)
-                        //{
-                        //    Debug.WriteLine($"waiting1");
-
-                        //    // 等待 DataAvailable || 工作被取消
-                        //    SpinWait.SpinUntil(() => networkStream.DataAvailable ||  _cancellationTokenSource.IsCancellationRequested, 1000);
-                        //    // 若工作被 Cancel，關閉 NetworkStream 與 Client 並跳出迴圈
-                        //    if (_cancellationTokenSource.IsCancellationRequested)
-                        //    {
-                        //        networkStream.Close();
-                        //        _tcpClient.Close();
-                        //        break;
-                        //    }
-
-                        //    Debug.WriteLine($"waiting2");
-
-                        //    int i = networkStream.Read(bytes, 0, bytes.Length);
-                        //    string data = System.Text.Encoding.UTF8.GetString(bytes, 0, i);
-                        //    Debug.WriteLine($"Data: {data} {_tcpClient.Connected} {i} {networkStream.CanRead}");
-                        //}  
-#endif
-
-                                //while (!_cancellationTokenSource.IsCancellationRequested)
-                                //{
-                                //    // 等待 DataAvailabel || 工作被取消；或太久沒有資料傳遞，關閉此連線
-                                //    if (SpinWait.SpinUntil(() => networkStream.DataAvailable || _cancellationTokenSource.IsCancellationRequested, 30 * 1000))
-                                //    {
-                                //        if (_cancellationTokenSource.IsCancellationRequested) { break; }
-                                //        i = networkStream.Read(bytes, 0, bytes.Length);
-                                //        if (i == 0) { break; }
-                                //        string data = System.Text.Encoding.UTF8.GetString(bytes, 0, i);
-                                //        Debug.WriteLine($"Data: {data}, i: {i}");
-                                //    }
-                                //    else
-                                //    {
-                                //        break;
-                                //    }
-                                //}
-
-                                //while ((i = networkStream.Read(bytes, 0, bytes.Length)) != 0)
-                                //{
-                                //    string data = System.Text.Encoding.UTF8.GetString(bytes, 0, i);
-                                //    Debug.WriteLine($"Data: {data}, i: {i}");
-                                //}
-
-                                #endregion
-                            }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"EX: {ex.Message}");
-                        }
-
-                        networkStream.Close();
-                        networkStream.Dispose();
-
-                        return tcpClient;
-                    }).ContinueWith(t =>
-                    {
-                        Debug.WriteLine(t.Result.Connected);
-                        Debug.WriteLine(t.Status);
-
-
-
-                        t.Result.Close();
-                        t.Dispose();
-                    });
-                }
-
-                _tcpListener.Stop();
-                Debug.WriteLine($"End Server");
-            }, TaskCreationOptions.LongRunning);
-        }
-
-        /// <summary>
-        /// 終止Tcp Listener
-        /// </summary>
-        [Obsolete("deprecated, will be removed at next version")]
-        public void EndTcpListener()
-        {
-            //_cancellationTokenSource 不為 null 且尚未要求 cancel
             if (_cancellationTokenSource?.IsCancellationRequested == false)
             {
                 _cancellationTokenSource.Cancel();
@@ -594,7 +614,6 @@ namespace SystemInfo
         /// <param name="e"></param>
         private void Timer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
-            // Debug.WriteLine($"{SystemTime}");
             OnPropertyChanged(nameof(SystemTime));
 
             if (_auto)
@@ -602,7 +621,6 @@ namespace SystemInfo
                 OnPropertyChanged(nameof(AutoTime));
                 OnPropertyChanged(nameof(TotalAutoTime));
             }
-            // OnPropertyChanged(nameof(IdleTime)); // 之後需移除
         }
 
         /// <summary>
@@ -638,7 +656,6 @@ namespace SystemInfo
             }
         }
 
-
         public void ResetIdlTimer()
         {
             Idle = false;
@@ -651,7 +668,6 @@ namespace SystemInfo
                 _idleTimer.Start();
             }
         }
-
 
         public delegate void IdleChangedEventHandler(object sender, IdleChangedEventArgs e);
 
@@ -750,6 +766,18 @@ namespace SystemInfo
         }
         #endregion
 
+        #region Methods
+        public void SetOperationStatus(OperationalStatus status)
+        {
+            _status = status;
+        }
+
+        public NetworkInfo Clone()
+        {
+            return (NetworkInfo)MemberwiseClone();
+        }
+        #endregion
+
         #region Property Changed Event
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -763,6 +791,7 @@ namespace SystemInfo
     /// <summary>
     /// 網卡資訊集合
     /// </summary>
+    [Obsolete]
     public class NetWorkInfoCollection : ObservableCollection<NetworkInfo>
     {
         public NetWorkInfoCollection() : base()
